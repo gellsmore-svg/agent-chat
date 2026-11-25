@@ -29,7 +29,7 @@ offensive operations, or provide actionable assistance for biological weaponizat
 """
 
 
-def build_prompt(config, slot, turns, retry=False):
+def build_prompt(config, slot, turns, retry_error=None):
     data = {
         "objective": config["objective"],
         "identity": config["participants"][slot]["name"],
@@ -40,13 +40,16 @@ def build_prompt(config, slot, turns, retry=False):
         "allowed_intents": sorted(INTENTS if valid_acceptance(turns) else INTENTS - {"accept_finish"}),
         "selected_project_extracts": config["sources"],
     }
+    if config.get("source_provenance"):
+        data["source_provenance"] = config["source_provenance"]
     history = [
         {field: turn[field] for field in ("sequence", "author", "intent", "message", *MEMORY_FIELDS)}
         for turn in turns
     ]
     policy = INSTRUCTIONS
-    if retry:
-        policy += "Your previous attempt was invalid or repetitive. Supply a distinct, valid contribution.\n"
+    if retry_error is not None:
+        policy += "Your previous attempt was invalid or repetitive. Correct the reported error in your next contribution.\n"
+        data["previous_attempt_error"] = retry_error
     for omitted in range(max(1, len(history) - 1)):
         data["recent_original_turns"] = history[omitted:]
         data["omitted_turn_count"] = omitted
@@ -264,12 +267,13 @@ def perform(store, backend, slot, config, control, turns, claim):
         except Busy:
             return False
 
+    retry_error = None
     while claim:
         metadata = None
         if claim["attempt"] > 1:
             time.sleep(min(config["poll"], 0.2))
         try:
-            prompt = build_prompt(config, slot, turns, retry=claim["attempt"] > 1)
+            prompt = build_prompt(config, slot, turns, retry_error)
         except ProtocolError as error:
             control, claim = resolve(store, claim, error=str(error))
             continue
@@ -279,12 +283,14 @@ def perform(store, backend, slot, config, control, turns, claim):
                 cancelled, min(config["poll"], 0.25),
             )
         except AdapterError as error:
+            retry_error = str(error)
             control, claim = resolve(store, claim, error=str(error), metadata=error.metadata, retry=error.retry)
             continue
         try:
             response = normalize(raw, config, turns)
             reject_repeat(config, slot, turns, response)
         except ProtocolError as error:
+            retry_error = str(error)
             control, claim = resolve(store, claim, error=str(error), retry=True, metadata=metadata)
         else:
             control, claim = resolve(store, claim, response=response, metadata=metadata)

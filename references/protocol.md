@@ -6,7 +6,7 @@ Both workers require an exact match against the integer wire protocol version in
 
 ## Authoritative state
 
-- `session.json` is published last during initialization and is immutable thereafter. It contains configuration, two identities, and an optional snapshot of individually selected project files.
+- `session.json` is published last during initialization and is immutable thereafter. It contains configuration, two identities, and a `sources` map of selected project text. Range keys use `path#Lstart-Lend`. New sessions with ranges also store `source_provenance` keyed by those labels, with the original `path`, inclusive `start` and `end` line numbers, and `bytes` of UTF-8 snapshot text. Version 1 sessions without `source_provenance` remain valid.
 - `turns/NNNNNN.json` is an append-only journal. Each record includes its expected predecessor's SHA-256 and its own SHA-256 of canonical UTF-8 JSON with sorted keys, compact separators and the checksum field removed. Sequence and author follow strict alternation from the first speaker. The checksums detect accidental damage. Access control belongs to the OS account and directory.
 - `control.json` is an atomic, checksummed lifecycle snapshot. It records registration, deadline, terminal result and the in-flight invocation, if any. `conversation.md` is a deterministic projection of the journal and lifecycle state.
 - `leases/<A-or-B>.json` holds worker identity, process and heartbeat. A worker also holds an exclusive OS lock on a fixed participant lockfile for its entire lifetime. PID and timestamps are advisory. The OS lock independently proves exclusive ownership and releases on process death.

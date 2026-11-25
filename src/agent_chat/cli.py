@@ -1,5 +1,6 @@
 import argparse
 import os
+import re
 import signal
 import sys
 import tempfile
@@ -11,9 +12,9 @@ from . import __version__
 from .adapters import AdapterError, auth_status, discover, invoke_agent
 from .installer import DISCOVERY, SKILL, home_skills, install
 from .protocol import (
-    BACKENDS, LABELS, PROTOCOL_VERSION, TERMINAL, FileLock, ProtocolError, Store, atomic_write,
-    checked, machine_scope, outcome, quoted, render, require, seal, session_root, speaker, text_file,
-    validate_config,
+    BACKENDS, LABELS, PROTOCOL_VERSION, SOURCE_SELECTION_BYTES, SOURCE_SELECTION_COUNT, SOURCE_TOTAL_BYTES,
+    TERMINAL, FileLock, ProtocolError, Store, atomic_write, checked, machine_scope, outcome, quoted, render,
+    require, seal, session_root, source_range, source_range_key, speaker, text_file, validate_config,
 )
 from .runner import build_prompt, normalize, refresh, run_worker
 
@@ -25,25 +26,61 @@ def participant(value):
     return {"name": name, "backend": backend}
 
 
-def selected_sources(directory, files):
+def range_selector(value):
+    path, _, bounds = value.rpartition("=")
+    match = re.fullmatch(r"([0-9]+)-([0-9]+)", bounds)
+    if path and match:
+        try:
+            start, end = map(int, match.groups())
+        except ValueError:
+            pass
+        else:
+            if 1 <= start <= end:
+                return path, start, end
+    raise argparse.ArgumentTypeError("expected PATH=START-END with positive, ascending line numbers")
+
+
+def source_path(file_name):
+    reference = Path(file_name)
+    require(not (reference.is_absolute() or reference.anchor or ".." in reference.parts),
+            "Source selections must use a relative path within the project")
+    require(all(not part.startswith(".") for part in reference.parts), "Hidden project paths are excluded")
+    return reference
+
+
+def selected_sources(directory, files, ranges):
     if directory is None:
-        require(not files, "--include requires --project")
-        return {}
+        require(not (files or ranges), "--include and --range require --project")
+        return {}, {}
     root = checked(directory, "dir")
-    require(files, "--project requires one or more explicitly selected --include files")
+    require(files or ranges, "--project requires at least one --include or --range selection")
     selected = {}
+    provenance = {}
     size = 0
-    for file_name in files:
-        reference = Path(file_name)
-        require(not (reference.is_absolute() or reference.anchor or ".." in reference.parts),
-                "--include must be a relative path within the project")
-        require(all(not part.startswith(".") for part in reference.parts), "Hidden project paths are excluded")
-        key = reference.as_posix()
-        if key not in selected:
-            selected[key] = text_file(root / reference, 24_000)
-            size += len(selected[key].encode("utf-8"))
-            require(size <= 48_000 and len(selected) <= 30, "Project snapshot exceeds 48,000 bytes or 30 files")
-    return selected
+
+    def add_selection(key, content):
+        nonlocal size
+        selected[key] = content
+        content_bytes = len(content.encode("utf-8"))
+        size += content_bytes
+        require(size <= SOURCE_TOTAL_BYTES and len(selected) <= SOURCE_SELECTION_COUNT,
+                f"Project snapshot exceeds {SOURCE_TOTAL_BYTES:,} bytes or {SOURCE_SELECTION_COUNT} selections")
+        return content_bytes
+
+    whole_files = {source_path(name): None for name in files}
+    for reference in whole_files:
+        add_selection(reference.as_posix(), text_file(root / reference, SOURCE_SELECTION_BYTES))
+    for file_name, start, end in ranges:
+        reference = source_path(file_name)
+        path = reference.as_posix()
+        require(reference not in whole_files, f"Choose either --include or --range for {path}")
+        key = source_range_key(path, start, end)
+        if key in provenance:
+            continue
+        require(key not in selected, f"Source range label conflicts with a selected file: {key}")
+        content_bytes = add_selection(key, source_range(root / reference, start, end))
+        provenance[key] = {"path": path, "start": start, "end": end, "bytes": content_bytes}
+    return selected, provenance
 
 
 def initialize(args):
@@ -56,7 +93,8 @@ def initialize(args):
         print(f"Existing session recognized at {root}")
         return 0
     objective = args.objective if args.objective is not None else text_file(args.objective_file, 24_000)
-    config = seal({
+    sources, provenance = selected_sources(args.project, args.include, args.range)
+    config = {
         "version": PROTOCOL_VERSION, "machine_scope": machine_scope(),
         "id": uuid.uuid4().hex, "created": time.time(),
         "mode": "discussion", "participants": [args.a, args.b], "first": args.first or args.a["name"],
@@ -64,8 +102,11 @@ def initialize(args):
         "duration": args.minutes * 60, "max_turns": args.max_turns, "poll": args.poll,
         "timeout": args.timeout, "join_timeout": args.join_timeout, "worker_grace": args.worker_grace,
         "context_chars": args.context_chars, "message_chars": args.message_chars,
-        "sources": selected_sources(args.project, args.include),
-    })
+        "sources": sources,
+    }
+    if provenance:
+        config["source_provenance"] = provenance
+    config = seal(config)
     validate_config(config)
     build_prompt(config, 0, [])
     created = store.initialize(config)
@@ -220,6 +261,8 @@ def parser():
     init.add_argument("--message-chars", type=int, default=2400)
     init.add_argument("--project")
     init.add_argument("--include", action="append", default=[])
+    init.add_argument("--range", action="append", default=[], type=range_selector, metavar="PATH=START-END",
+                      help="snapshot a project's exact 1-based inclusive line range")
     worker = commands.add_parser("run", help="join and run one participant")
     worker.add_argument("--dir", required=True)
     worker.add_argument("--agent", required=True)
