@@ -23,6 +23,10 @@ else:
     import fcntl
 
 PROTOCOL_VERSION = 1
+SOURCE_SELECTION_BYTES = 24_000
+SOURCE_TOTAL_BYTES = 48_000
+SOURCE_SELECTION_COUNT = 30
+SOURCE_SCAN_BYTES = 1_048_576
 BACKENDS = {"codex", "grok", "claude"}
 INTENTS = {"continue", "propose_finish", "accept_finish"}
 TERMINAL = {
@@ -157,11 +161,41 @@ def text_file(path, limit):
     path = checked(path, "file")
     with path.open("rb") as source:
         data = source.read(limit + 1)
-    require(len(data) <= limit, f"File exceeds its size limit: {path.name}")
+    require(len(data) <= limit, f"File exceeds its size limit of {limit:,} bytes: {path.name}")
+    return decode_source(data, path)
+
+
+def decode_source(data, path, starts_at_first_line=True):
     try:
-        return data.decode("utf-8-sig")
+        return data.decode("utf-8-sig" if starts_at_first_line else "utf-8")
     except UnicodeError:
         raise ProtocolError(f"File must contain UTF-8 text: {path.name}") from None
+
+
+def source_range_key(path, start, end):
+    return f"{path}#L{start}-L{end}"
+
+
+def source_range(path, start, end):
+    path = checked(path, "file")
+    data = bytearray()
+    with path.open("rb") as source:
+        remaining_scan = SOURCE_SCAN_BYTES
+        for _ in range(1, start):
+            line = source.readline(remaining_scan + 1)
+            require(line, f"Line range starts past end of file: {path.name}")
+            remaining_scan -= len(line)
+            require(remaining_scan >= 0, f"Line range exceeds the {SOURCE_SCAN_BYTES:,}-byte scan limit: {path.name}")
+        for line_number in range(start, end + 1):
+            remaining_bytes = SOURCE_SELECTION_BYTES - len(data)
+            line = source.readline(remaining_bytes + 1)
+            if not line:
+                position = "starts" if line_number == start else "extends"
+                raise ProtocolError(f"Line range {position} past end of file: {path.name}")
+            require(len(line) <= remaining_bytes,
+                    f"Line range exceeds the {SOURCE_SELECTION_BYTES:,}-byte selection limit: {path.name}")
+            data.extend(line)
+    return decode_source(data, path, starts_at_first_line=start == 1)
 
 
 def canonical(data):
@@ -350,6 +384,18 @@ def validate_config(config):
         check_text(name, "Project filename")
         check_text(value, "Project snapshot")
     minimum_context = len(canonical(sources)) + len(canonical(config["objective"])) + 4 * config["message_chars"] + 4500
+    if "source_provenance" in config:
+        provenance = config["source_provenance"]
+        require(isinstance(provenance, dict), "Invalid source provenance")
+        for name, entry in provenance.items():
+            require(name in sources and isinstance(entry, dict) and set(entry) == {"path", "start", "end", "bytes"},
+                    "Invalid source provenance")
+            path, start, end, size = (entry[field] for field in ("path", "start", "end", "bytes"))
+            require(isinstance(path, str) and path and (path not in sources or path in provenance)
+                    and type(start) is int and type(end) is int and 1 <= start <= end
+                    and name == source_range_key(path, start, end)
+                    and type(size) is int and size == len(sources[name].encode("utf-8")), "Invalid source provenance")
+        minimum_context += len(canonical(provenance))
     require(config["context_chars"] >= minimum_context, f"Context budget must be at least {minimum_context} characters for these inputs")
 
 
@@ -560,7 +606,10 @@ class Store:
 
 def validate_contribution(data, limit, turns):
     message, intent = data.get("message"), data.get("intent")
-    require(isinstance(message, str) and 0 < len(message.strip()) <= limit, "Invalid contribution message")
+    require(isinstance(message, str), f"Contribution message must be text (limit {limit:,} characters)")
+    length = len(message.strip())
+    require(length > 0, f"Contribution message is empty (limit {limit:,} characters)")
+    require(length <= limit, f"Contribution message is {length:,} characters after trimming (limit {limit:,})")
     require(isinstance(intent, str) and intent in INTENTS, "Invalid contribution intent")
     require(intent != "accept_finish" or valid_acceptance(turns), "Premature completion acknowledgement")
     for field in ("decisions", "open_questions", "actions"):

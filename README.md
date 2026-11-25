@@ -1,17 +1,17 @@
-# Agent Chat v1.0
+# Agent Chat v1.1
 
-Agent Chat runs a structured technical conversation between exactly two independent CLI agents on one machine. Each participant has its own Python worker. The workers share a local folder and maintain one readable `conversation.md`. The skill tells an interactive agent how to launch the runner. The runner handles registration, polling, backend calls, deadlines, commits and recovery.
+Agent Chat runs a structured technical conversation between exactly two CLI agents on one machine. Both agents invoke one installed Python package. Each agent runs that package as its own worker process. The workers share a local folder and maintain one readable `conversation.md`. The skill tells an interactive agent how to launch the installed runner. The runner handles registration, polling, backend calls, deadlines, commits and recovery.
 
 ## Requirements
 
-- Python 3.11 or newer. No packages are required.
+- Python 3.11 or newer. Install this repository once with pip. Both participants invoke that installation's `agent-chat` command.
 - Any two participants using Codex CLI, official Grok Build, or Claude Code. Both participants may use the same backend.
 - A local filesystem with OS file locking and atomic rename. Run both workers under the same OS runtime and user account. For WSL, use two WSL workers and Linux backends. For PowerShell, use two native Windows workers and Windows backends. Cloud-synced folders and network shares are outside the protocol's guarantees.
 - Authenticate using each CLI's normal login flow. Provider account limits and billing apply.
 
 ## Install Agent Chat
 
-The private [`gellsmore-svg/agent-chat` repository](https://github.com/gellsmore-svg/agent-chat) is the source for the Python package, the skill, the protocol and the tests. Clone it with a GitHub account that has access, then install one shared copy of the package. Put that installation's command directory on the `PATH` of both participants, or give both agents the full path to the same executable.
+The private [`gellsmore-svg/agent-chat` repository](https://github.com/gellsmore-svg/agent-chat) is the only implementation of the skill, the Python library, the CLI, the backend adapters, the protocol, the installer and the tests. Clone it with a GitHub account that has access, then install one shared copy of the package. Put that installation's command directory on the `PATH` of both participants, or give both agents the full path to the same executable. Keep each conversation directory outside this repository. A later agent joins or runs a session with the installed command.
 
 **Unix and WSL**
 
@@ -104,7 +104,11 @@ agent-chat init \
   --objective-file ./objective.md --project ./spec --include "design notes.md"
 ```
 
-Start `agent-chat run --dir ./agent-chats/design --agent Analyst` and `agent-chat run --dir ./agent-chats/design --agent Eve` in separate terminals. Repeat `--include` to select additional review inputs. The runner snapshots selected UTF-8 files in `session.json` at initialization. Share only content that both model providers may receive. Increase `--context-chars` for larger briefs or snapshots, up to 100,000 characters.
+Start `agent-chat run --dir ./agent-chats/design --agent Analyst` and `agent-chat run --dir ./agent-chats/design --agent Eve` in separate terminals. Repeat `--include` to select additional review inputs. The runner snapshots selected UTF-8 text in `session.json` at initialization. Share only content that both model providers may receive.
+
+For a long file, use `--range "design notes.md=80-110"` with `--project`. The range includes both endpoints, counts from line 1, and retains the original path and line numbers for citation. Repeat `--range` to select multiple excerpts. Choose either whole-file input or ranges for each path. A range can skip up to 1 MiB of preceding bytes.
+
+Each whole file or excerpt has a 24,000-byte limit. A snapshot can contain up to 30 selections and 48,000 bytes. `--context-chars` sets the separate prompt budget, up to 100,000 characters.
 
 ## Session commands
 
@@ -123,7 +127,7 @@ Use `agent-chat COMMAND` on both Unix and PowerShell.
 
 By default, the first worker waits 120 seconds for the second. The active 10-minute clock starts at the second registration. The default cap is 12 contributions. Tune `--join-timeout`, `--minutes`, `--max-turns`, `--poll` (1 second), `--timeout` (120 seconds per call), and `--worker-grace` (15 seconds to replace an idle crashed worker). Except for `--minutes`, time settings use seconds. A call is limited by both its configured timeout and the remaining active session time.
 
-The runner ends with mutual completion, active deadline expiry, maximum turns, cancellation, or failure. A backend error or per-invocation timeout fails the session. Invalid or exact normalized repeated contributions receive one retry. A failed worker exits with code 1. A normal terminal outcome returns 0. A directly interrupted worker returns 130.
+The runner ends with mutual completion, active deadline expiry, maximum turns, cancellation, or failure. A backend error or per-invocation timeout fails the session. Invalid or exact normalized repeated contributions receive one retry. The retry prompt and diagnostics identify the failure without including the rejected response. A failed worker exits with code 1. A normal terminal outcome returns 0. A directly interrupted worker returns 130.
 
 ## Backend configuration
 
@@ -167,7 +171,7 @@ conversation-folder/
 - If the picked identity fails to join, run `doctor`, verify the spelling and backend executable, and check authentication for the actual worker account. Grok credential detection checks presence only. A live smoke test verifies usable access.
 - If a session directory contains an incomplete initialization, keep it for inspection and choose a fresh empty directory. Terminal sessions keep their results. Start a new folder for a new conversation.
 
-Version 1 uses one host, two participants and fresh headless calls. It detects exact normalized repeats, while semantic loops remain subject to the turn and time limits. A new backend can implement capability discovery, argument building and output parsing without altering the journal. A future implementation mode would require its own explicit permission and tool policy.
+Version 1 uses one host, two participants and fresh headless calls. It detects exact normalized repeats, while semantic loops remain subject to the turn and time limits. Another backend is a change to this package: capability discovery, argument building and output parsing stay beside the existing adapters and leave the journal unchanged. A future mode that can change a project would need its own explicit permission and tool policy in this package.
 
 ## Development and verification
 
