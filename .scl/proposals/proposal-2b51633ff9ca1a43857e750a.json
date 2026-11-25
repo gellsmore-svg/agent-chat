@@ -1,0 +1,426 @@
+{
+  "title": "Agent Chat product review and acceptance model",
+  "changes": [
+    {
+      "op": "capture_source",
+      "source": {
+        "alias": "product",
+        "path": "docs/iomr.md",
+        "ref": "sha256:20ddbf99bc2490e354519190ad65f5d7eeefd55f383190644c5692f4ab6c2669"
+      },
+      "content": "# Agent Chat IOMR proposal\n\nThe intent agreed in the product review is to help two reviewers reach a traceable technical conclusion from shared evidence. The SCL proposal models two outcomes that support that intent. Codex implemented the changes and Grok was assigned independent verification.\n\n## Recover a failed contribution\n\nA correctable response failure gives the backend enough information to try again before a turn is committed. The participants in this interaction are the runner and the CLI backend. Empty, non-text and oversized replies must produce distinct diagnostics. For a size failure, the diagnostic and retry prompt carry the measured character count and the cap. A corrected retry commits one contribution. A second failure terminates the session. Exact normalized repeats keep the same one-retry limit. [Issue #1](https://github.com/gellsmore-svg/agent-chat/issues/1)\n\n## Share citable evidence\n\nAn operator can select exact inclusive line ranges from a larger UTF-8 project document. The runner snapshots the text and gives both participants the original path and line numbers. Acceptance checks compare the selected bytes and provenance, exercise the existing whole-file input, and verify rejection of out-of-file, conflicting, and over-budget selections. The provisional scan limit permits up to 1 MiB before the first selected line. [Issue #2](https://github.com/gellsmore-svg/agent-chat/issues/2)\n\n## Product constraints\n\nDiscussion uses two participants, bounded turns and time, read-only backends, and explicitly selected evidence. Retry feedback excludes rejected text. Range selection uses the existing path checks and snapshot and prompt budgets. A saved protocol v1 session can load without source provenance.\n\n## Model status\n\nSCL’s `iomr-evolved` 2.0.0 metamodel connects Requirements to Models, Models to measurable Outcomes, and Outcomes to the Intent. The SCL service stores the candidate under `.scl/proposals/`. Use `scl --root . api validate_proposal` with its proposal ID to check the graph. Integration into the canonical model requires a trusted human signature. The application has no SCL runtime dependency.\n"
+    },
+    {
+      "op": "add_record",
+      "record": {
+        "id": "intent-traceable-peer-review",
+        "type": "Intent",
+        "name": "Traceable peer review",
+        "description": "Help two reviewers reach a traceable technical conclusion from shared evidence.",
+        "status": "planned",
+        "metadata": {
+          "basis": "derived",
+          "evidence": [
+            "product:model/iomr/sources/product.md#Agent Chat IOMR proposal"
+          ]
+        }
+      }
+    },
+    {
+      "op": "add_record",
+      "record": {
+        "id": "outcome-corrected-contribution",
+        "type": "Outcome",
+        "name": "Recover a corrected contribution",
+        "description": "A correctable response error can be fixed within the current turn.",
+        "status": "planned",
+        "metadata": {
+          "basis": "derived",
+          "evidence": [
+            "product:model/iomr/sources/product.md#Recover a failed contribution"
+          ],
+          "measure": "Empty, non-text, and oversized reply fixtures recover on one retry and commit one turn. A second invalid reply ends the session."
+        }
+      }
+    },
+    {
+      "op": "add_record",
+      "record": {
+        "id": "outcome-citable-evidence",
+        "type": "Outcome",
+        "name": "Give reviewers citable evidence",
+        "description": "Both reviewers can cite the exact original lines supplied by the operator.",
+        "status": "planned",
+        "metadata": {
+          "basis": "derived",
+          "evidence": [
+            "product:model/iomr/sources/product.md#Share citable evidence"
+          ],
+          "measure": "Range fixtures reproduce the selected UTF-8 text and report consistent source path and inclusive bounds to both reviewers."
+        }
+      }
+    },
+    {
+      "op": "add_record",
+      "record": {
+        "id": "actor-operator",
+        "type": "Actor",
+        "name": "Session operator",
+        "description": "The person who initializes the collaboration and selects shared evidence.",
+        "status": "planned",
+        "metadata": {
+          "basis": "derived",
+          "evidence": [
+            "product:model/iomr/sources/product.md#Share citable evidence"
+          ]
+        }
+      }
+    },
+    {
+      "op": "add_record",
+      "record": {
+        "id": "system-runner",
+        "type": "System",
+        "name": "Agent Chat runner",
+        "description": "The local session engine that snapshots evidence and commits validated turns.",
+        "status": "planned",
+        "metadata": {
+          "basis": "derived",
+          "evidence": [
+            "product:model/iomr/sources/product.md#Product constraints"
+          ]
+        }
+      }
+    },
+    {
+      "op": "add_record",
+      "record": {
+        "id": "system-cli-backend",
+        "type": "System",
+        "name": "CLI backend",
+        "description": "The participant CLI that returns a candidate discussion contribution.",
+        "status": "planned",
+        "metadata": {
+          "basis": "derived",
+          "evidence": [
+            "product:model/iomr/sources/product.md#Recover a failed contribution"
+          ]
+        }
+      }
+    },
+    {
+      "op": "add_record",
+      "record": {
+        "id": "model-correct-before-commit",
+        "type": "Model",
+        "name": "Correct a reply before commit",
+        "description": "The runner validates a candidate reply, reports a correctable error, and validates the one retry.",
+        "status": "planned",
+        "metadata": {
+          "basis": "derived",
+          "evidence": [
+            "product:model/iomr/sources/product.md#Recover a failed contribution"
+          ]
+        },
+        "interaction": [
+          "system-system"
+        ],
+        "steps": [
+          {
+            "from": "system-cli-backend",
+            "to": "system-runner",
+            "message": "Return the initial candidate reply"
+          },
+          {
+            "from": "system-runner",
+            "to": "system-cli-backend",
+            "message": "Return the applicable validation reason in one retry prompt"
+          },
+          {
+            "from": "system-cli-backend",
+            "to": "system-runner",
+            "message": "Return a corrected candidate reply"
+          }
+        ]
+      }
+    },
+    {
+      "op": "add_record",
+      "record": {
+        "id": "model-select-source-excerpts",
+        "type": "Model",
+        "name": "Select exact document excerpts",
+        "description": "The operator explicitly selects a project-relative file range and the runner snapshots it for both participants.",
+        "status": "planned",
+        "metadata": {
+          "basis": "derived",
+          "evidence": [
+            "product:model/iomr/sources/product.md#Share citable evidence"
+          ]
+        },
+        "interaction": [
+          "human-system"
+        ],
+        "steps": [
+          {
+            "from": "actor-operator",
+            "to": "system-runner",
+            "message": "Select an original path and inclusive line bounds"
+          },
+          {
+            "from": "system-runner",
+            "to": "actor-operator",
+            "message": "Initialize with cited text or report the rejected selection"
+          }
+        ]
+      }
+    },
+    {
+      "op": "add_record",
+      "record": {
+        "id": "requirement-classified-retry",
+        "type": "Requirement",
+        "name": "Report the reply validation cause",
+        "description": "The runner SHALL classify empty, non-text, and oversized messages and provide content-free retry feedback before commit.",
+        "status": "planned",
+        "metadata": {
+          "basis": "derived",
+          "evidence": [
+            "product:model/iomr/sources/product.md#Recover a failed contribution"
+          ],
+          "acceptance": "Given an invalid reply, when its diagnostic and next request are inspected, then they give the matching reason and configured cap without the rejected body."
+        }
+      }
+    },
+    {
+      "op": "add_relationship",
+      "relationship": {
+        "type": "specifies",
+        "from": "requirement-classified-retry",
+        "to": "model-correct-before-commit",
+        "rationale": "This requirement constrains the correct before commit interaction.",
+        "id": "requirement-classified-retry-specifies-model-correct-before-commit"
+      }
+    },
+    {
+      "op": "add_record",
+      "record": {
+        "id": "requirement-single-retry",
+        "type": "Requirement",
+        "name": "Limit correction to one retry",
+        "description": "The runner SHALL allow one retry for a correctable failure or exact repeat under the existing turn and time limits.",
+        "status": "planned",
+        "metadata": {
+          "basis": "derived",
+          "evidence": [
+            "product:model/iomr/sources/product.md#Recover a failed contribution"
+          ],
+          "acceptance": "Given an invalid first attempt, when the next reply validates it commits once. A second invalid reply ends the session without committing that turn."
+        }
+      }
+    },
+    {
+      "op": "add_relationship",
+      "relationship": {
+        "type": "specifies",
+        "from": "requirement-single-retry",
+        "to": "model-correct-before-commit",
+        "rationale": "This requirement constrains the correct before commit interaction.",
+        "id": "requirement-single-retry-specifies-model-correct-before-commit"
+      }
+    },
+    {
+      "op": "add_record",
+      "record": {
+        "id": "requirement-discussion-boundaries",
+        "type": "Requirement",
+        "name": "Retain bounded read-only discussions",
+        "description": "The runner SHALL keep two participants, read-only backend execution, existing time and turn bounds, and a protocol v1 journal.",
+        "status": "planned",
+        "metadata": {
+          "basis": "derived",
+          "evidence": [
+            "product:model/iomr/sources/product.md#Product constraints"
+          ],
+          "acceptance": "Given an existing v1 session and existing backend settings, when resumed or recovered, then lifecycle rules and read-only invocation flags still apply."
+        }
+      }
+    },
+    {
+      "op": "add_relationship",
+      "relationship": {
+        "type": "specifies",
+        "from": "requirement-discussion-boundaries",
+        "to": "model-correct-before-commit",
+        "rationale": "This requirement constrains the correct before commit interaction.",
+        "id": "requirement-discussion-boundaries-specifies-model-correct-before-commit"
+      }
+    },
+    {
+      "op": "add_record",
+      "record": {
+        "id": "requirement-inclusive-range",
+        "type": "Requirement",
+        "name": "Snapshot exact inclusive lines",
+        "description": "The runner SHALL accept explicit one-based inclusive line selections and retain original path, bounds, and UTF-8 byte count.",
+        "status": "planned",
+        "metadata": {
+          "basis": "derived",
+          "evidence": [
+            "product:model/iomr/sources/product.md#Share citable evidence"
+          ],
+          "acceptance": "Given LF and CRLF files, when ranges and a final unterminated line are selected, then the snapshot preserves the selected text and cites the original location."
+        }
+      }
+    },
+    {
+      "op": "add_relationship",
+      "relationship": {
+        "type": "specifies",
+        "from": "requirement-inclusive-range",
+        "to": "model-select-source-excerpts",
+        "rationale": "This requirement constrains the select source excerpts interaction.",
+        "id": "requirement-inclusive-range-specifies-model-select-source-excerpts"
+      }
+    },
+    {
+      "op": "add_record",
+      "record": {
+        "id": "requirement-selection-bounds",
+        "type": "Requirement",
+        "name": "Enforce source and prompt budgets",
+        "description": "The runner SHALL reject invalid paths, conflicting selections, out-of-file ranges, and breached scan, snapshot, or prompt budgets.",
+        "status": "planned",
+        "metadata": {
+          "basis": "derived",
+          "evidence": [
+            "product:model/iomr/sources/product.md#Share citable evidence"
+          ],
+          "acceptance": "Given an out-of-file range, a prefix over 1 MiB, a selection over 24,000 bytes, a total over 48,000 bytes, or a context gap, when initialized, then the runner reports the failing constraint."
+        }
+      }
+    },
+    {
+      "op": "add_relationship",
+      "relationship": {
+        "type": "specifies",
+        "from": "requirement-selection-bounds",
+        "to": "model-select-source-excerpts",
+        "rationale": "This requirement constrains the select source excerpts interaction.",
+        "id": "requirement-selection-bounds-specifies-model-select-source-excerpts"
+      }
+    },
+    {
+      "op": "add_record",
+      "record": {
+        "id": "requirement-source-compatibility",
+        "type": "Requirement",
+        "name": "Keep existing source selections readable",
+        "description": "The runner SHALL preserve whole-file selection behavior and accept v1 snapshots without range provenance.",
+        "status": "planned",
+        "metadata": {
+          "basis": "derived",
+          "evidence": [
+            "product:model/iomr/sources/product.md#Product constraints"
+          ],
+          "acceptance": "Given a saved v1 config with string-valued sources and no provenance, when loaded, then it remains usable with the original text."
+        }
+      }
+    },
+    {
+      "op": "add_relationship",
+      "relationship": {
+        "type": "specifies",
+        "from": "requirement-source-compatibility",
+        "to": "model-select-source-excerpts",
+        "rationale": "This requirement constrains the select source excerpts interaction.",
+        "id": "requirement-source-compatibility-specifies-model-select-source-excerpts"
+      }
+    },
+    {
+      "op": "add_relationship",
+      "relationship": {
+        "type": "delivers",
+        "from": "outcome-corrected-contribution",
+        "to": "intent-traceable-peer-review",
+        "rationale": "This observable result supports a traceable review.",
+        "id": "outcome-corrected-contribution-delivers-intent-traceable-peer-review"
+      }
+    },
+    {
+      "op": "add_relationship",
+      "relationship": {
+        "type": "delivers",
+        "from": "outcome-citable-evidence",
+        "to": "intent-traceable-peer-review",
+        "rationale": "This observable result supports a traceable review.",
+        "id": "outcome-citable-evidence-delivers-intent-traceable-peer-review"
+      }
+    },
+    {
+      "op": "add_relationship",
+      "relationship": {
+        "type": "serves",
+        "from": "model-correct-before-commit",
+        "to": "outcome-corrected-contribution",
+        "rationale": "One classified retry gives the backend a bounded correction opportunity.",
+        "id": "model-correct-before-commit-serves-outcome-corrected-contribution"
+      }
+    },
+    {
+      "op": "add_relationship",
+      "relationship": {
+        "type": "serves",
+        "from": "model-select-source-excerpts",
+        "to": "outcome-citable-evidence",
+        "rationale": "Explicit excerpts preserve the selected shared evidence and the original citation.",
+        "id": "model-select-source-excerpts-serves-outcome-citable-evidence"
+      }
+    },
+    {
+      "op": "add_relationship",
+      "relationship": {
+        "type": "involves",
+        "from": "model-correct-before-commit",
+        "to": "system-runner",
+        "rationale": "This participant performs a step of the interaction.",
+        "id": "model-correct-before-commit-involves-system-runner"
+      }
+    },
+    {
+      "op": "add_relationship",
+      "relationship": {
+        "type": "involves",
+        "from": "model-correct-before-commit",
+        "to": "system-cli-backend",
+        "rationale": "This participant performs a step of the interaction.",
+        "id": "model-correct-before-commit-involves-system-cli-backend"
+      }
+    },
+    {
+      "op": "add_relationship",
+      "relationship": {
+        "type": "involves",
+        "from": "model-select-source-excerpts",
+        "to": "actor-operator",
+        "rationale": "This participant performs a step of the interaction.",
+        "id": "model-select-source-excerpts-involves-actor-operator"
+      }
+    },
+    {
+      "op": "add_relationship",
+      "relationship": {
+        "type": "involves",
+        "from": "model-select-source-excerpts",
+        "to": "system-runner",
+        "rationale": "This participant performs a step of the interaction.",
+        "id": "model-select-source-excerpts-involves-system-runner"
+      }
+    }
+  ],
+  "base_revision": "25746ea9780c16ab6bec759ccf98d6e5e45192396a153eb64c2010579061c1f5",
+  "origin": "ai-inferred",
+  "author": "Codex and Grok product review",
+  "state": "proposed",
+  "id": "proposal-2b51633ff9ca1a43857e750a"
+}
