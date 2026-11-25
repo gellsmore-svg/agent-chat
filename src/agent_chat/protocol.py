@@ -22,13 +22,17 @@ if os.name == "nt":
 else:
     import fcntl
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
+FINISH_SEQUENCES = {
+    1: ("propose_finish", "accept_finish"),
+    2: ("propose_finish", "accept_finish", "confirm_finish", "confirm_finish"),
+}
 SOURCE_SELECTION_BYTES = 24_000
 SOURCE_TOTAL_BYTES = 48_000
 SOURCE_SELECTION_COUNT = 30
 SOURCE_SCAN_BYTES = 1_048_576
 BACKENDS = {"codex", "grok", "claude"}
-INTENTS = {"continue", "propose_finish", "accept_finish"}
+INTENTS = {"continue", *FINISH_SEQUENCES[PROTOCOL_VERSION]}
 TERMINAL = {
     "completed": "Completed by mutual agreement",
     "timed_out": "Timed out",
@@ -348,8 +352,8 @@ def machine_scope():
 def validate_config(config):
     verify(config, "session.json")
     version = config.get("version")
-    require(type(version) is int and version == PROTOCOL_VERSION,
-            f"Incompatible session protocol. This installation supports protocol v{PROTOCOL_VERSION}.")
+    require(type(version) is int and version in FINISH_SEQUENCES,
+            "Incompatible session protocol. This installation supports protocol v1 and v2.")
     require(config.get("mode") == "discussion", "Unsupported operating mode")
     if "machine_scope" in config:
         require(config["machine_scope"] == machine_scope(),
@@ -446,8 +450,34 @@ def speaker(config, sequence):
     return (first_slot + sequence - 1) % 2
 
 
-def valid_acceptance(turns):
-    return bool(turns and turns[-1]["intent"] == "propose_finish")
+def finish_progress(version, turns):
+    sequence = FINISH_SEQUENCES[version]
+    recent = tuple(turn["intent"] for turn in turns[-len(sequence):])
+    for length in range(len(recent), 0, -1):
+        if recent[-length:] == sequence[:length]:
+            return length
+    return 0
+
+
+def allowed_intents(version, turns):
+    sequence = FINISH_SEQUENCES[version]
+    progress = finish_progress(version, turns)
+    if progress == len(sequence):
+        return set()
+    return {"continue", "propose_finish", sequence[progress]}
+
+
+def finish_notice(config, turns):
+    if config["version"] == 1:
+        return ""
+    progress = finish_progress(config["version"], turns)
+    if not 1 <= progress <= 3:
+        return ""
+    proposal = len(turns) - progress + 1
+    name = config["participants"][speaker(config, len(turns) + 1)]["name"]
+    if progress == 1:
+        return f"Proposal in turn {proposal} awaits acceptance from {name}."
+    return f"Proposal in turn {proposal} accepted. {progress - 2} of 2 confirmations recorded. Awaiting {name}."
 
 
 def outcome(control, status, reason):
@@ -469,17 +499,24 @@ def render(config, control, turns):
         f"**Limits:** {config['duration']:g}s active, {config['max_turns']} turns, "
         f"{config['timeout']:g}s per invocation · discussion mode",
     ]
+    if control["status"] == "running" and (notice := finish_notice(config, turns)):
+        sections[0] += f"\n\n**Finish check:** {notice}"
     labels = {"decisions": "Decisions", "open_questions": "Challenges and open questions", "actions": "Action items"}
     for turn in turns:
-        entry = (f"## Turn {turn['sequence']} · {turn['author']}\n\n"
-                 f"**Time:** {timestamp(turn['at'])}\n\n{quoted(turn['message'])}")
+        entry = f"## Turn {turn['sequence']} · {turn['author']}\n\n**Time:** {timestamp(turn['at'])}"
+        if config["version"] != 1:
+            entry += f"\n\n**Intent:** `{turn['intent']}`"
+        entry += "\n\n" + quoted(turn["message"])
         for field, label in labels.items():
             if turn[field]:
                 entry += f"\n\n**{label}**\n\n" + quoted("\n".join(f"- {item}" for item in turn[field]))
         sections.append(entry)
     if control["status"] in TERMINAL:
         sections.append(f"## Session outcome\n\n**{LABELS[control['status']]}**\n\n{control['reason']}")
-        if control["status"] == "completed":
+        if control["status"] == "completed" and config["version"] != 1:
+            sections[-1] += (f" See proposal in turn {len(turns) - 3}, acceptance in turn {len(turns) - 2},"
+                             f" and confirmations in turns {len(turns) - 1} and {len(turns)}.")
+        elif control["status"] == "completed":
             sections[-1] += f" See proposal in turn {len(turns) - 1} and acceptance in turn {len(turns)}."
         elif turns:
             sections[-1] += f" See turn {len(turns)} for the latest position and unresolved matters."
@@ -560,11 +597,10 @@ class Store:
                 and is_uuid(turn.get("invocation")) and turn["invocation"] not in invocations
                 and number(turn.get("at")) and control["started"] is not None
                 and control["started"] <= turn["at"] < control["deadline"]
-                and (not turns or turn["at"] >= turns[-1]["at"])
-                and (not turns or turns[-1]["intent"] != "accept_finish"),
+                and (not turns or turn["at"] >= turns[-1]["at"]),
                 f"Inconsistent journal record: {entry.name}",
             )
-            validate_contribution(turn, config["message_chars"], turns)
+            validate_contribution(turn, config["message_chars"], config["version"], turns)
             turns.append(turn)
             invocations.add(turn["invocation"])
         return turns
@@ -604,14 +640,17 @@ class Store:
                 and now - lease["at"] <= grace)
 
 
-def validate_contribution(data, limit, turns):
+def validate_contribution(data, limit, version, turns):
     message, intent = data.get("message"), data.get("intent")
     require(isinstance(message, str), f"Contribution message must be text (limit {limit:,} characters)")
     length = len(message.strip())
     require(length > 0, f"Contribution message is empty (limit {limit:,} characters)")
     require(length <= limit, f"Contribution message is {length:,} characters after trimming (limit {limit:,})")
     require(isinstance(intent, str) and intent in INTENTS, "Invalid contribution intent")
-    require(intent != "accept_finish" or valid_acceptance(turns), "Premature completion acknowledgement")
+    reasons = {"accept_finish": "Acceptance requires the preceding finish proposal",
+               "confirm_finish": "Confirmation requires the current accepted finish proposal"}
+    require(intent in allowed_intents(version, turns),
+            reasons.get(intent, "Contribution after mutual completion"))
     for field in ("decisions", "open_questions", "actions"):
         entries = data.get(field)
         require(
@@ -620,5 +659,8 @@ def validate_contribution(data, limit, turns):
                 for entry in entries
             ), f"Invalid contribution field: {field}",
         )
+    if version != 1 and intent != "continue":
+        require(not (data["open_questions"] or data["actions"]),
+                "Finish requires empty open_questions and actions. Use continue if work remains.")
     check_text("\n".join([message, *(item for field in ("decisions", "open_questions", "actions")
                                      for item in data[field])]), "Response")

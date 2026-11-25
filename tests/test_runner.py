@@ -84,10 +84,16 @@ class ConversationTest(unittest.TestCase):
                 self.init("--first", "Bob", backend_a=pair[0], backend_b=pair[1])
                 self.pair("mutual")
                 turns = self.turns()
-                self.assertEqual([turn["author"] for turn in turns], ["Bob", "Alice", "Bob", "Alice"])
-                self.assertEqual([turn["sequence"] for turn in turns], list(range(1, 5)))
+                self.assertEqual([turn["author"] for turn in turns], ["Bob", "Alice"] * 3)
+                self.assertEqual([turn["sequence"] for turn in turns], list(range(1, 7)))
+                self.assertEqual([turn["intent"] for turn in turns], [
+                    "continue", "continue", "propose_finish", "accept_finish", "confirm_finish", "confirm_finish",
+                ])
                 self.assertEqual(self.control()["status"], "completed")
                 self.assertIn("Completed by mutual agreement", self.cli("status"))
+                transcript = self.cli("export")
+                self.assertIn("**Intent:** `confirm_finish`", transcript)
+                self.assertIn("proposal in turn 3, acceptance in turn 4, and confirmations in turns 5 and 6", transcript)
                 self.assertIn("Schedule the review.", self.cli("export", "--summary"))
 
     def test_duplicate_and_third_participant(self):
@@ -98,7 +104,45 @@ class ConversationTest(unittest.TestCase):
         self.assertIn("Unknown participant", self.finish(self.worker("Carol", "mutual"), 1))
         self.finish(self.worker("Bob", "mutual"), 0)
         self.finish(first, 0)
-        self.assertEqual(len(list(self.log.glob("*.json"))), 4)
+        self.assertEqual(len(list(self.log.glob("*.json"))), 6)
+
+    def test_legacy_session_finishes_on_acceptance(self):
+        self.init()
+        path = self.session / "session.json"
+        config = self.read("session.json")
+        config.pop("checksum")
+        protocol.write_json(path, protocol.seal({**config, "version": 1}))
+        self.pair("legacy_mutual")
+        self.assertEqual([turn["intent"] for turn in self.turns()], ["propose_finish", "accept_finish"])
+        self.assertIn("Completed by mutual agreement", self.cli("recover"))
+
+    def test_acceptance_and_one_confirmation_cannot_finish(self):
+        for limit in (4, 5):
+            with self.subTest(limit=limit):
+                self.session = self.root / f"incomplete finish {limit}"
+                self.init("--max-turns", str(limit))
+                self.pair("mutual")
+                self.assertEqual(self.control()["status"], "max_turns")
+                self.assertNotIn("Completed by mutual agreement", self.cli("export"))
+
+    def test_outstanding_action_cannot_be_confirmed(self):
+        self.init()
+        self.pair("finish_with_outstanding_work", 1)
+        self.assertEqual([turn["intent"] for turn in self.turns()], ["propose_finish", "accept_finish"])
+        self.assertEqual(self.control()["status"], "failed")
+        self.assertIn("Use continue if work remains", self.control()["reason"])
+
+    def test_continue_discards_the_previous_confirmation(self):
+        self.init("--max-turns", "8")
+        self.pair("reopen_finish")
+        self.assertEqual(self.control()["status"], "completed")
+        self.assertEqual([turn["intent"] for turn in self.turns()], [
+            "propose_finish", "accept_finish", "confirm_finish", "continue",
+            "propose_finish", "accept_finish", "confirm_finish", "confirm_finish",
+        ])
+        diagnostic = next((self.session / "diagnostics").glob("*.json"))
+        self.assertIn("Confirmation requires", json.loads(diagnostic.read_text(encoding="utf-8"))["error"])
+        self.assertIn("proposal in turn 5, acceptance in turn 6, and confirmations in turns 7 and 8", self.cli("export"))
 
     def test_join_timeout(self):
         self.init("--join-timeout", ".35")
@@ -194,7 +238,7 @@ class ConversationTest(unittest.TestCase):
         self.finish(first, 0)
         self.finish(second, 43)
         self.assertIn("Completed by mutual agreement", self.cli("recover"))
-        self.assertEqual(len(self.turns()), 4)
+        self.assertEqual(len(self.turns()), 6)
 
     def test_abandoned_invocation_is_not_reissued(self):
         self.init("--worker-grace", ".7")

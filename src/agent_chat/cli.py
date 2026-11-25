@@ -13,7 +13,7 @@ from .adapters import AdapterError, auth_status, discover, invoke_agent
 from .installer import DISCOVERY, SKILL, home_skills, install
 from .protocol import (
     BACKENDS, LABELS, PROTOCOL_VERSION, SOURCE_SELECTION_BYTES, SOURCE_SELECTION_COUNT, SOURCE_TOTAL_BYTES,
-    TERMINAL, FileLock, ProtocolError, Store, atomic_write, checked, machine_scope, outcome, quoted, render,
+    TERMINAL, FileLock, ProtocolError, Store, atomic_write, checked, finish_notice, machine_scope, outcome, quoted, render,
     require, seal, session_root, source_range, source_range_key, speaker, text_file, validate_config,
 )
 from .runner import build_prompt, normalize, refresh, run_worker
@@ -184,6 +184,8 @@ def manage(args):
             if control["status"] == "running":
                 name = config["participants"][speaker(config, len(turns) + 1)]["name"]
                 print(f"Next speaker: {name} · {max(0, control['deadline'] - now):.1f}s remaining")
+                if notice := finish_notice(config, turns):
+                    print(notice)
             if control["status"] == "waiting" and control["join_deadline"]:
                 print(f"Join window: {max(0, control['join_deadline'] - now):.1f}s remaining")
             if turns:
@@ -224,6 +226,7 @@ def doctor(args):
             print(f"{name} {backend.version} · compatible flags · {auth_status(backend)}", flush=True)
             if args.smoke:
                 sample = {
+                    "version": PROTOCOL_VERSION,
                     "objective": "Give one concise, concrete advantage of checking a calculation twice. Use continue.",
                     "participants": [{"name": "Local"}, {"name": "Peer"}], "sources": {},
                     "max_turns": 2, "message_chars": 1000, "context_chars": 8000,

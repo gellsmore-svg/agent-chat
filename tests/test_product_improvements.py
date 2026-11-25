@@ -59,12 +59,12 @@ class SourceSelectionTest(unittest.TestCase):
                 self.assertIn(reason, result.stderr)
                 self.assertFalse((self.session / "session.json").exists())
 
-    def test_legacy_include_loads_without_provenance(self):
+    def test_whole_file_include_loads_without_range_provenance(self):
         (self.project / "notes.md").write_bytes(b"legacy body\n")
         result = self.initialize("--include", "notes.md")
         self.assertEqual(result.returncode, 0, result.stderr)
         config = protocol.Store(self.session).load()
-        self.assertEqual(config["version"], 1)
+        self.assertEqual(config["version"], protocol.PROTOCOL_VERSION)
         self.assertEqual(config["sources"], {"notes.md": "legacy body\n"})
         self.assertNotIn("source_provenance", config)
 
@@ -88,6 +88,7 @@ def prompt_data(prompt):
 class RetryFeedbackTest(unittest.TestCase):
     def test_retry_corrects_each_message_class_without_echoing_the_reply(self):
         config = {
+            "version": protocol.PROTOCOL_VERSION,
             "objective": "Synthetic test.", "participants": [{"name": "A"}, {"name": "B"}],
             "max_turns": 3, "message_chars": 100, "sources": {}, "context_chars": 8000,
             "timeout": 5, "poll": 0.05,
