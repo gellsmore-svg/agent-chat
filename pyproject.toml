@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-chat"
+dynamic = ["version"]
+description = "Two-party local conversations between Codex, Grok Build, and Claude Code"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+agent-chat = "agent_chat.cli:main"
+
+[project.urls]
+Repository = "https://github.com/gellsmore-svg/agent-chat"
+Issues = "https://github.com/gellsmore-svg/agent-chat/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false
+
+[tool.setuptools.dynamic]
+version = {attr = "agent_chat.__version__"}
+
+[tool.setuptools.package-data]
+agent_chat = ["skill/agent-chat/SKILL.md"]
