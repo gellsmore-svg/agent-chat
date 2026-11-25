@@ -1,4 +1,4 @@
-# Agent Chat v1.1
+# Agent Chat v1.2
 
 Agent Chat runs a structured technical conversation between exactly two CLI agents on one machine. Both agents invoke one installed Python package. Each agent runs that package as its own worker process. The workers share a local folder and maintain one readable `conversation.md`. The skill tells an interactive agent how to launch the installed runner. The runner handles registration, polling, backend calls, deadlines, commits and recovery.
 
@@ -75,7 +75,7 @@ Terminal 2
 agent-chat run --dir ./agent-chats/scl-review --agent Reviewer
 ```
 
-Read `agent-chats/scl-review/conversation.md` while the workers run or after they finish. The transcript gives every contribution a speaker and timestamp, shows their recorded decisions, challenges and actions, and ends with the reason the session stopped. Mutual completion refers to the proposal and acceptance in the corresponding turns.
+Read `agent-chats/scl-review/conversation.md` while the workers run or after they finish. The transcript shows each participant's intent, decisions, challenges and actions. A completed session names the finish proposal, the acceptance, and both confirmations.
 
 ### Claude and Codex on Windows
 
@@ -127,7 +127,9 @@ Use `agent-chat COMMAND` on both Unix and PowerShell.
 
 By default, the first worker waits 120 seconds for the second. The active 10-minute clock starts at the second registration. The default cap is 12 contributions. Tune `--join-timeout`, `--minutes`, `--max-turns`, `--poll` (1 second), `--timeout` (120 seconds per call), and `--worker-grace` (15 seconds to replace an idle crashed worker). Except for `--minutes`, time settings use seconds. A call is limited by both its configured timeout and the remaining active session time.
 
-The runner ends with mutual completion, active deadline expiry, maximum turns, cancellation, or failure. A backend error or per-invocation timeout fails the session. Invalid or exact normalized repeated contributions receive one retry. The retry prompt and diagnostics identify the failure without including the rejected response. A failed worker exits with code 1. A normal terminal outcome returns 0. A directly interrupted worker returns 130.
+The runner ends with mutual completion, active deadline expiry, maximum turns, cancellation, or failure. A backend error or per-invocation timeout fails the session. Invalid responses and repeated discussion contributions receive one retry. The retry prompt and diagnostics identify the failure without including the rejected response. A failed worker exits with code 1. A normal terminal outcome returns 0. A directly interrupted worker returns 130.
+
+New sessions require four closing turns. One participant proposes finishing, the counterpart accepts, and then both independently confirm that no work or question remains within the objective. A `continue` turn or a new finish proposal resets the check. The transcript and `status` show whose confirmation is due. Allow at least four turns for any session intended to end by mutual agreement.
 
 ## Backend configuration
 
@@ -151,7 +153,7 @@ The conversation context retains the objective, the newest original exchange and
 
 ## Files, recovery and troubleshooting
 
-The package version and protocol version are separate. `agent-chat --version` prints both. Every worker checks the session's exact protocol version and machine binding before probing the backend or registering. Existing protocol-v1 sessions created before machine binding remain readable and their stored worker hostnames still apply. If you see a protocol mismatch, use a compatible package installation for both participants or create a new session. Keep the original session so its history can be read by a compatible release.
+The package version and protocol version are separate. `agent-chat --version` prints the package version and the protocol for new sessions. Workers check protocol support and machine binding before backend discovery or registration. This release uses protocol v2 for new sessions and supports existing v1 sessions under their original finish rule. The oldest v1 sessions still check their recorded worker hostnames. Both workers in a v2 session need a v2-capable package.
 
 ```text
 conversation-folder/
@@ -171,7 +173,7 @@ conversation-folder/
 - If the picked identity fails to join, run `doctor`, verify the spelling and backend executable, and check authentication for the actual worker account. Grok credential detection checks presence only. A live smoke test verifies usable access.
 - If a session directory contains an incomplete initialization, keep it for inspection and choose a fresh empty directory. Terminal sessions keep their results. Start a new folder for a new conversation.
 
-Version 1 uses one host, two participants and fresh headless calls. It detects exact normalized repeats, while semantic loops remain subject to the turn and time limits. Another backend is a change to this package: capability discovery, argument building and output parsing stay beside the existing adapters and leave the journal unchanged. A future mode that can change a project would need its own explicit permission and tool policy in this package.
+Agent Chat uses one host, two participants and fresh headless calls. It detects exact normalized repeats, while semantic loops remain subject to the turn and time limits. Another backend is a change to this package: capability discovery, argument building and output parsing stay beside the existing adapters and leave the journal unchanged. A future mode that can change a project would need its own explicit permission and tool policy in this package.
 
 ## Development and verification
 

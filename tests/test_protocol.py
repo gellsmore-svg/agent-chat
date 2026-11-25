@@ -77,6 +77,7 @@ class ProtocolTest(unittest.TestCase):
 
     def test_context_keeps_current_exchange_and_historical_notes(self):
         config = {
+            "version": protocol.PROTOCOL_VERSION,
             "objective": "Resolve the architecture.", "participants": [{"name": "One"}, {"name": "Two"}],
             "max_turns": 12, "sources": {}, "context_chars": 8000, "message_chars": 1000,
         }
@@ -93,6 +94,31 @@ class ProtocolTest(unittest.TestCase):
         self.assertEqual(data["recent_original_turns"][-1]["sequence"], 11)
         self.assertIn("Recorded decision 1", prompt)
         self.assertIn("Open question 1", prompt)
+
+    def test_confirmation_retains_the_proposal_and_acceptance_when_compacting_history(self):
+        config = {
+            "version": protocol.PROTOCOL_VERSION,
+            "objective": "Resolve the architecture.", "participants": [{"name": "One"}, {"name": "Two"}],
+            "max_turns": 12, "sources": {}, "context_chars": 8000, "message_chars": 1000,
+        }
+        intents = ["continue"] * 7 + ["propose_finish", "accept_finish", "confirm_finish"]
+        turns = [
+            {"sequence": index, "author": "One" if index % 2 else "Two", "intent": intent,
+             "message": "detail " * 140, "decisions": [], "open_questions": [], "actions": []}
+            for index, intent in enumerate(intents, 1)
+        ]
+        prompt = runner.build_prompt(config, 0, turns)
+        data = json.loads(prompt.split("\n```json\n")[1].split("\n```")[0])
+        self.assertGreater(data["omitted_turn_count"], 0)
+        self.assertEqual(data["finish_check"], {"proposal_turn": 8, "confirmations_recorded": 1})
+        self.assertEqual([turn["sequence"] for turn in data["recent_original_turns"][-3:]], [8, 9, 10])
+        self.assertIn("confirm_finish", data["allowed_intents"])
+        self.assertNotIn("accept_finish", data["allowed_intents"])
+
+        replacement = [*turns, {"intent": "propose_finish"}]
+        self.assertEqual(protocol.allowed_intents(config["version"], replacement), {
+            "continue", "propose_finish", "accept_finish",
+        })
 
     def test_atomic_replacement_and_symlink_rejection(self):
         path = self.root / "transcript with spaces.md"

@@ -37,10 +37,32 @@ def respond():
         "intent": "continue", "decisions": [], "open_questions": [], "actions": [],
     }
     if SCENARIO in {"mutual", "crash_final"}:
+        if sequence == 1:
+            result.update(actions=["Schedule the review."])
         if sequence == 3:
             result.update(intent="propose_finish", decisions=["Review before approving."])
         if sequence == 4:
-            result.update(intent="accept_finish", actions=["Schedule the review."])
+            result.update(intent="accept_finish")
+        if sequence in {5, 6}:
+            result.update(intent="confirm_finish", message="I checked the proposal and no work remains in scope.")
+    elif SCENARIO == "legacy_mutual":
+        result.update(intent="propose_finish" if sequence == 1 else "accept_finish")
+        if sequence == 2:
+            result.update(actions=["Schedule the review."])
+    elif SCENARIO == "reopen_finish":
+        if sequence == 5 and "previous_attempt_error" not in conversation:
+            result.update(intent="confirm_finish")  # Confirmation of the superseded chain must fail.
+        else:
+            result["intent"] = ("propose_finish", "accept_finish", "confirm_finish", "continue",
+                                "propose_finish", "accept_finish", "confirm_finish", "confirm_finish")[sequence - 1]
+            if result["intent"] == "confirm_finish":
+                result.update(message="I checked the proposal and no work remains in scope.")
+            if sequence == 4:
+                result.update(open_questions=["One calculation still needs review."])
+    elif SCENARIO == "finish_with_outstanding_work":
+        result["intent"] = ("propose_finish", "accept_finish", "confirm_finish")[sequence - 1]
+        if sequence == 3:
+            result.update(actions=["Check a remaining calculation."])
     elif SCENARIO == "premature":
         result["intent"] = "accept_finish"
     elif SCENARIO == "repeat":
@@ -80,7 +102,7 @@ def worker():
     def interrupted_write(path, data):
         original_write(path, data)
         if path.parent.name == "turns" and (
-            SCENARIO == "crash_commit" or SCENARIO == "crash_final" and data["intent"] == "accept_finish"
+            SCENARIO == "crash_commit" or SCENARIO == "crash_final" and data["sequence"] == 6
         ):
             os._exit(43)
 

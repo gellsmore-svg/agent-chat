@@ -1,8 +1,8 @@
-# Agent Chat filesystem protocol v1
+# Agent Chat filesystem protocol v2
 
 A session has two immutable logical identities. Both workers invoke one installed `agent-chat` package and use the same OS runtime on one machine. The session directory lives outside the implementation checkout on a local filesystem with working OS file locks and atomic rename. WSL and native Windows are separate runtimes. The session directory and executable configuration are trusted local resources. Counterpart text and project excerpts are untrusted data.
 
-Both workers require an exact match against the integer wire protocol version in `session.json` before backend discovery or registration. Package releases can share a wire version. New sessions bind to a hash of the host identifier and runtime platform. Older v1 sessions use any recorded registration hostnames for the local check. These checks prevent accidental mixed-runtime use. Operators must choose a local filesystem even where the OS cannot identify a remote mount.
+Both workers must support the integer wire protocol version in `session.json` before backend discovery or registration. New sessions use v2. Existing v1 sessions retain their original rules. New sessions bind to a hash of the host identifier and runtime platform. Older v1 sessions use any recorded registration hostnames for the local check. These checks prevent accidental mixed-runtime use. Operators must choose a local filesystem even where the OS cannot identify a remote mount.
 
 ## Authoritative state
 
@@ -19,6 +19,21 @@ Writers acquire the bounded commit lock, read and validate the journal and contr
 
 Recovery reconciles a journal entry whose invocation marker survived, derives mutual completion and turn exhaustion from the journal, and rebuilds the transcript. It reports incomplete initialization, corrupt control, unexpected journal files and broken checksums or invariants. It never removes committed history. A restart between invocations can rejoin within the worker grace period. An abandoned in-flight invocation fails the session because the old child might still be running. It cannot publish a contribution or be retried implicitly in that session. An interrupted initializing directory without a published session must be preserved for inspection or replaced with a new directory.
 
-The active clock starts at the second registration. Before that, the join clock starts at first registration. The earlier of the active deadline and the invocation timeout bounds each call. Manual stop, expiry and worker death are observed by live workers while calls are pending. A malformed response gets one bounded retry. Model timeout, backend error and a second malformed or repeated response fail the session. An exact normalized repeat by the same author is rejected. A finish acceptance requires the other participant's immediately preceding finish proposal.
+The active clock starts at the second registration. Before that, the join clock starts at first registration. The earlier of the active deadline and the invocation timeout bounds each call. Manual stop, expiry and worker death are observed by live workers while calls are pending. A malformed response gets one bounded retry. Model timeout, backend error and a second malformed or repeated response fail the session. The runner rejects exact normalized repeats by the same author. Confirmations are tied to the active proposal and may use the same wording for a later proposal.
 
-Successful mutual completion acknowledges the proposal and the acceptance messages. Other endings retain the last contribution and make no joint claim. Status, stop and recover reconcile interrupted publication without model calls. Export computes the same reconciliation in memory and leaves the canonical transcript unchanged.
+## Finish check
+
+In v2 the journal must end with four consecutive turns for mutual completion.
+
+| Turn | Speaker | Intent |
+| --- | --- | --- |
+| 1 | Proposer | `propose_finish` |
+| 2 | Counterpart | `accept_finish` |
+| 3 | Proposer | `confirm_finish` |
+| 4 | Counterpart | `confirm_finish` |
+
+Each confirmation is the participant's declaration that no work or question remains within the objective. Finish turns require empty `open_questions` and `actions` arrays. A `continue` turn ends the current check and may record outstanding work. A new proposal starts a new check. The runner derives the active proposal and confirmation count from the journal. The transcript names the four turns on successful completion. When a deadline, turn limit, cancellation, or failure stops the session before the final confirmation commits, the runner records that outcome without claiming agreement.
+
+Protocol v1 completes when the counterpart accepts the immediately preceding proposal. Status, stop and recover reconcile interrupted publication without model calls. Export computes the same reconciliation in memory and leaves the canonical transcript unchanged.
+
+The [Deborah process map](finish-handshake.cairn.md) describes the per-turn contract the runner enforces.
